@@ -21,7 +21,7 @@
 
 <script>
 (() => {
-  window.name = 'twitchBridge';    // garantit le bon nom de fenêtre
+  window.name = "twitchBridge"; // garantit le nom attendu
   const ALLOWED_PARENT = "https://symaog.neocities.org";
   const HOST = location.origin;
   const logEl = document.getElementById('log');
@@ -66,11 +66,10 @@ window.addEventListener("message", async (ev) => {
     res.error = String(e && e.message || e);
   }
 
-  reply(ev.source, ev.origin, res);
-if (res.ok && msg.action === 'users') {
-  setTimeout(() => { try { window.close(); } catch(_) {} }, 200); // 200ms pour laisser partir le postMessage
+reply(ev.source, ev.origin, res);
+if (res.ok && msg.action === "users") {
+  setTimeout(() => { try { window.close(); } catch (_) {} }, 200);
 }
-
 
 
 }, false);
@@ -78,4 +77,5 @@ if (res.ok && msg.action === 'users') {
 </script>
 </body>
 </html>
+
 
