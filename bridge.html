@@ -69,11 +69,13 @@ window.addEventListener("message", async (ev) => {
 
   // 🔽 AJOUT ICI
   if (res.ok && msg.action === "users") {
-    setTimeout(() => { try { window.close(); } catch(_) {} }, 50);
-  }
+  setTimeout(() => { try { window.close(); } catch(_) {} }, 50);
+}
+
 }, false);
 })();
 </script>
 </body>
 </html>
+
 
