@@ -2,82 +2,111 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8">
+  <title>Twitch OAuth Bridge</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Twitch Bridge</title>
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <style>
-    html,body{margin:0;padding:0;background:#0f1115;color:#e5e7eb;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif}
-    .wrap{max-width:760px;margin:0 auto;padding:18px}
-    code{background:#0b0c10;padding:2px 6px;border-radius:6px}
+    /* Page volontairement minimale ; petit message si la redirection tarde */
+    html,body{height:100%} body{display:flex;align-items:center;justify-content:center;
+    font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#0b0d0f;color:#e5f4f2}
+    .box{opacity:.8;text-align:center;font-size:14px}
+    .box strong{display:block;margin-bottom:6px}
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <h1>Twitch Bridge (Popup)</h1>
-    <p>Cette page reçoit des messages de <code>https://symaog.neocities.org</code>,
-       effectue les appels Twitch (<code>/oauth2/validate</code>, <code>/helix/users</code>)
-       puis renvoie la réponse via <code>postMessage</code>.</p>
-    <pre id="log"></pre>
+  <div class="box" id="msg" role="status" aria-live="polite">
+    <strong>Traitement de l’autorisation Twitch…</strong>
+    Cette fenêtre va se fermer automatiquement.
   </div>
 
-<script>
-(() => {
-  window.name = "twitchBridge";
-  const ALLOWED_PARENT = "https://symaog.neocities.org";
-  const HOST = location.origin;
-  const logEl = document.getElementById('log');
-  const PARENT = window.opener || window.parent; // popup OU iframe
+  <!--
+    Ce script gère :
+    - la récupération du token dans l’ancre (#access_token=…)
+    - l’envoi du résultat à la fenêtre parente (window.opener)
+    - un fallback si la popup est ouverte en plein onglet (sans opener)
+  -->
+  <script>
+    (function () {
+      // Si jamais le fichier JS externe ne se charge pas, on implémente un fallback minimal.
+      function parseHash() {
+        const hash = location.hash.replace(/^#/, '');
+        const p = new URLSearchParams(hash);
+        return {
+          access_token: p.get('access_token'),
+          token_type: p.get('token_type'),
+          scope: (p.get('scope') || '').split(' ').filter(Boolean),
+          state: p.get('state'),
+          expires_in: p.get('expires_in') ? parseInt(p.get('expires_in'), 10) : undefined
+        };
+      }
+      function postAndClose(payload, isError) {
+        try {
+          if (window.opener && window.opener.postMessage) {
+            window.opener.postMessage(
+              isError ? { type: 'twitch_auth_error',  error: String(payload) }
+                      : { type: 'twitch_auth_success', payload },
+              window.location.origin
+            );
+            // Donnons un mini délai au navigateur pour envoyer le message avant fermeture
+            setTimeout(() => window.close(), 150);
+            return true;
+          }
+        } catch (_) {}
+        return false;
+      }
 
-  function log(...a){ try{ logEl.textContent += a.join(' ') + "\n"; }catch(_){} }
-  function reply(win, origin, msg){ try{ win.postMessage(msg, origin); }catch(_){} }
+      // Si la page est ouverte “nue” (directement) : petit confort → renvoie vers la home
+      function redirectHomeSoon() {
+        setTimeout(() => { window.location.replace('/'); }, 800);
+      }
 
-  // Signal READY au parent/ouverture
-  try { PARENT && reply(PARENT, ALLOWED_PARENT, { type:"TW_BRIDGE_READY", host: HOST }); } catch(_){}
+      // Si aucune ancre (pas de token), on laisse le script externe gérer (ou on renvoie home)
+      if (!location.hash) {
+        redirectHomeSoon();
+      }
 
-  async function twValidate(token){
-    const r = await fetch("https://id.twitch.tv/oauth2/validate", { headers:{ "Authorization": "OAuth " + token }});
-    if(!r.ok) throw new Error("validate failed: " + r.status);
-    return await r.json();
-  }
-  async function twUsers(token, clientId){
-    const r = await fetch("https://api.twitch.tv/helix/users", {
-      headers:{ "Authorization":"Bearer " + token, "Client-Id": clientId }
-    });
-    if(!r.ok) throw new Error("users failed: " + r.status);
-    return await r.json();
-  }
+      // Affiche le token localement si jamais opener est indisponible
+      const data = parseHash();
 
-window.addEventListener("message", async (ev) => {
-  if (ev.origin !== ALLOWED_PARENT) return; // sécurité
-  const msg = ev.data || {};
-  if (msg.type !== "TW_BRIDGE_REQ" || !msg.id) return;
+      // Si le script externe ne s’exécute pas, on tente un postMessage minimal
+      if (data && data.access_token) {
+        const ok = postAndClose({
+          access_token: data.access_token,
+          token_type: data.token_type,
+          scope: data.scope,
+          state: data.state,
+          expires_in: data.expires_in,
+          received_at: Date.now()
+        }, false);
 
-  const res = { type:"TW_BRIDGE_RES", id: msg.id, action: msg.action, ok:false };
-  try {
-    if (msg.action === "validate") {
-      res.data = await twValidate(msg.payload.token);
-      res.ok = true;
-    } else if (msg.action === "users") {
-      res.data = await twUsers(msg.payload.token, msg.payload.client_id);
-      res.ok = true;
-    } else {
-      throw new Error("unknown action: " + msg.action);
-    }
-  } catch (e) {
-    res.error = String(e && e.message || e);
-  }
+        if (!ok) {
+          // Aucun opener → on stocke en local et on revient à l’origine
+          try {
+            localStorage.setItem('symaog_twitch_auth_fallback', JSON.stringify({
+              access_token: data.access_token,
+              received_at: Date.now()
+            }));
+          } catch (_) {}
+          const msg = document.getElementById('msg');
+          if (msg) {
+            msg.innerHTML = '<strong>Autorisation reçue.</strong> Retour au site…';
+          }
+          redirectHomeSoon();
+        }
+      }
+    })();
+  </script>
 
-reply(ev.source, ev.origin, res);
-if (res.ok && msg.action === "users") {
-  setTimeout(() => { try { window.close(); } catch (_) {} }, 200);
-}
+  <!-- Script “officiel” du pont (gestion complète, validate + /helix/users, etc.) -->
+  <script src="twitch-auth-bridge-popup.js?v=2" defer></script>
 
-
-}, false);
-})();
-</script>
+  <noscript>
+    <div class="box">
+      <strong>JavaScript requis</strong>
+      Active JavaScript pour terminer l’authentification Twitch.
+    </div>
+  </noscript>
 </body>
 </html>
-
-
-
-
