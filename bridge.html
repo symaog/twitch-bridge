@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Twitch Bridge</title>
+  <style>
+    html,body{margin:0;padding:0;background:#0f1115;color:#e5e7eb;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif}
+    .wrap{max-width:760px;margin:0 auto;padding:18px}
+    code{background:#0b0c10;padding:2px 6px;border-radius:6px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Twitch Bridge</h1>
+    <p>Ce document reçoit des messages de <code>https://symaog.neocities.org</code>, effectue les appels Twitch (<code>/oauth2/validate</code>, <code>/helix/users</code>) puis renvoie la réponse via <code>postMessage</code>.</p>
+    <p>Si vous voyez cette page en direct, tout est normal. Elle peut rester publique.</p>
+    <pre id="log"></pre>
+  </div>
+
+<script>
+(() => {
+  const ALLOWED_PARENT = "https://symaog.neocities.org"; // ← ne pas changer
+
+  const logEl = document.getElementById('log');
+  function log(...a){ try{ logEl.textContent += a.join(' ') + "\n"; }catch(_){} }
+
+  // Notifie le parent si chargé en iframe
+  function notifyReady(){ try{ parent.postMessage({type:"TW_BRIDGE_READY"}, ALLOWED_PARENT); }catch(_ ){} }
+  notifyReady();
+
+  async function twValidate(token){
+    const r = await fetch("https://id.twitch.tv/oauth2/validate", {
+      headers: { "Authorization": "OAuth " + token }
+    });
+    if(!r.ok) throw new Error("validate failed: " + r.status);
+    return await r.json();
+  }
+
+  async function twUsers(token, clientId){
+    const r = await fetch("https://api.twitch.tv/helix/users", {
+      headers: {
+        "Authorization": "Bearer " + token,
+        "Client-Id": clientId
+      }
+    });
+    if(!r.ok) throw new Error("users failed: " + r.status);
+    return await r.json();
+  }
+
+  // Écoute le parent
+  window.addEventListener("message", async (ev)=>{
+    if (ev.origin !== ALLOWED_PARENT) return; // sécurité
+    const msg = ev.data || {};
+    if (msg?.type !== "TW_BRIDGE_REQ" || !msg?.id) return;
+
+    const res = { type:"TW_BRIDGE_RES", id: msg.id, action: msg.action, ok: false };
+    try {
+      if (msg.action === "validate") {
+        res.data = await twValidate(msg.payload.token);
+        res.ok = true;
+      } else if (msg.action === "users") {
+        res.data = await twUsers(msg.payload.token, msg.payload.client_id);
+        res.ok = true;
+      } else {
+        throw new Error("unknown action: " + msg.action);
+      }
+    } catch(e) {
+      res.error = String(e && e.message || e);
+    }
+    try { ev.source.postMessage(res, ev.origin); } catch(_) {}
+  }, false);
+})();
+</script>
+</body>
+</html>
