@@ -45,26 +45,35 @@
     return await r.json();
   }
 
-  window.addEventListener("message", async (ev)=>{
-    if (ev.origin !== ALLOWED_PARENT) return; // sécurité
-    const msg = ev.data || {};
-    if (msg.type !== "TW_BRIDGE_REQ" || !msg.id) return;
+window.addEventListener("message", async (ev) => {
+  if (ev.origin !== ALLOWED_PARENT) return; // sécurité
+  const msg = ev.data || {};
+  if (msg.type !== "TW_BRIDGE_REQ" || !msg.id) return;
 
-    const res = { type:"TW_BRIDGE_RES", id: msg.id, action: msg.action, ok:false };
-    try{
-      if (msg.action === "validate"){
-        res.data = await twValidate(msg.payload.token);
-        res.ok = true;
-      } else if (msg.action === "users"){
-        res.data = await twUsers(msg.payload.token, msg.payload.client_id);
-        res.ok = true;
-      } else {
-        throw new Error("unknown action: " + msg.action);
-      }
-    }catch(e){ res.error = String(e && e.message || e); }
-    reply(ev.source, ev.origin, res);
-  }, false);
+  const res = { type:"TW_BRIDGE_RES", id: msg.id, action: msg.action, ok:false };
+  try {
+    if (msg.action === "validate") {
+      res.data = await twValidate(msg.payload.token);
+      res.ok = true;
+    } else if (msg.action === "users") {
+      res.data = await twUsers(msg.payload.token, msg.payload.client_id);
+      res.ok = true;
+    } else {
+      throw new Error("unknown action: " + msg.action);
+    }
+  } catch (e) {
+    res.error = String(e && e.message || e);
+  }
+
+  reply(ev.source, ev.origin, res);
+
+  // 🔽 AJOUT ICI
+  if (res.ok && msg.action === "users") {
+    setTimeout(() => { try { window.close(); } catch(_) {} }, 50);
+  }
+}, false);
 })();
 </script>
 </body>
 </html>
+
