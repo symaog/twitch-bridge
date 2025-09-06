@@ -1,17 +1,22 @@
 <!doctype html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8">
+  <meta charset="utf-8" />
   <title>Twitch OAuth Bridge</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
-  <meta http-equiv="Pragma" content="no-cache">
-  <meta http-equiv="Expires" content="0">
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <!-- Empêcher le cache pour éviter les surprises -->
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
   <style>
     /* Page volontairement minimale ; petit message si la redirection tarde */
-    html,body{height:100%} body{display:flex;align-items:center;justify-content:center;
-    font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#0b0d0f;color:#e5f4f2}
-    .box{opacity:.8;text-align:center;font-size:14px}
+    html,body{height:100%}
+    body{
+      display:flex;align-items:center;justify-content:center;
+      font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+      background:#0b0d0f;color:#e5f4f2;margin:0
+    }
+    .box{opacity:.85;text-align:center;font-size:14px;line-height:1.4}
     .box strong{display:block;margin-bottom:6px}
   </style>
 </head>
@@ -22,14 +27,11 @@
   </div>
 
   <!--
-    Ce script gère :
-    - la récupération du token dans l’ancre (#access_token=…)
-    - l’envoi du résultat à la fenêtre parente (window.opener)
-    - un fallback si la popup est ouverte en plein onglet (sans opener)
+    Fallback MINIMAL : si le script externe ne se charge pas,
+    on essaie quand même d'envoyer le résultat au parent ou de revenir à l'accueil.
   -->
   <script>
     (function () {
-      // Si jamais le fichier JS externe ne se charge pas, on implémente un fallback minimal.
       function parseHash() {
         const hash = location.hash.replace(/^#/, '');
         const p = new URLSearchParams(hash);
@@ -41,66 +43,54 @@
           expires_in: p.get('expires_in') ? parseInt(p.get('expires_in'), 10) : undefined
         };
       }
-      function postAndClose(payload, isError) {
-        try {
-          if (window.opener && window.opener.postMessage) {
+      function postToOpener(payload, isError){
+        try{
+          if (window.opener && window.opener.postMessage){
             window.opener.postMessage(
-              isError ? { type: 'twitch_auth_error',  error: String(payload) }
-                      : { type: 'twitch_auth_success', payload },
+              isError ? { type:'twitch_auth_error',  error:String(payload) }
+                      : { type:'twitch_auth_success', payload },
               window.location.origin
             );
-            // Donnons un mini délai au navigateur pour envoyer le message avant fermeture
-            setTimeout(() => window.close(), 150);
+            setTimeout(()=>window.close(),150);
             return true;
           }
-        } catch (_) {}
+        }catch(_){}
         return false;
       }
+      function backHomeSoon(){ setTimeout(()=>location.replace('/'), 800); }
 
-      // Si la page est ouverte “nue” (directement) : petit confort → renvoie vers la home
-      function redirectHomeSoon() {
-        setTimeout(() => { window.location.replace('/'); }, 800);
-      }
+      // Si ouvert sans hash (accès direct) → retourne à l’accueil
+      if (!location.hash) { backHomeSoon(); return; }
 
-      // Si aucune ancre (pas de token), on laisse le script externe gérer (ou on renvoie home)
-      if (!location.hash) {
-        redirectHomeSoon();
-      }
-
-      // Affiche le token localement si jamais opener est indisponible
       const data = parseHash();
-
-      // Si le script externe ne s’exécute pas, on tente un postMessage minimal
-      if (data && data.access_token) {
-        const ok = postAndClose({
+      if (data && data.access_token){
+        const ok = postToOpener({
           access_token: data.access_token,
-          token_type: data.token_type,
-          scope: data.scope,
-          state: data.state,
-          expires_in: data.expires_in,
-          received_at: Date.now()
+          token_type:   data.token_type,
+          scope:        data.scope,
+          state:        data.state,
+          expires_in:   data.expires_in,
+          received_at:  Date.now()
         }, false);
 
-        if (!ok) {
-          // Aucun opener → on stocke en local et on revient à l’origine
-          try {
-            localStorage.setItem('symaog_twitch_auth_fallback', JSON.stringify({
-              access_token: data.access_token,
-              received_at: Date.now()
-            }));
-          } catch (_) {}
+        if (!ok){
+          // Aucun opener : on stocke puis on revient à l’accueil
+          try{
+            localStorage.setItem('symaog_twitch_auth_fallback',
+              JSON.stringify({ access_token:data.access_token, received_at:Date.now() })
+            );
+          }catch(_){}
           const msg = document.getElementById('msg');
-          if (msg) {
-            msg.innerHTML = '<strong>Autorisation reçue.</strong> Retour au site…';
-          }
-          redirectHomeSoon();
+          if (msg) msg.innerHTML = '<strong>Autorisation reçue.</strong> Retour au site…';
+          backHomeSoon();
         }
       }
     })();
   </script>
 
-  <!-- Script “officiel” du pont (gestion complète, validate + /helix/users, etc.) -->
-  <script src="twitch-auth-bridge-popup.js?v=2" defer></script>
+  <!-- Script “officiel” du pont (validate + /helix/users, envoi au parent) -->
+  <!-- IMPORTANT : ce fichier ne doit PAS être inclus dans index.html -->
+  <script src="twitch-auth-bridge-popup.js?v=22" defer></script>
 
   <noscript>
     <div class="box">
